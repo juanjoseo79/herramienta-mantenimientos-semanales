@@ -318,9 +318,13 @@ function setTab(name, btn){
 
 // ── COLORES ──────────────────────────────────────────────────────────────────
 const CLR = {
-  azul:'#1F3864', azulMed:'#2E5090', rojo:'#C0392B',
-  white:'#FFFFFF', grisBg:'#F4F6FB', grisBrd:'#CCCCCC',
-  black:'#111111', rojoTxt:'#C0392B'
+  azul:'#2C3E6B', azulMed:'#3D5A9C',
+  rojo:'#8B3A3A', rojoMed:'#A05030',
+  verde:'#2D5A3D', verdeMed:'#3A7A52',
+  indigo:'#3D3870', indigoMed:'#5550A0',
+  linea:'#1A4A6B', lineaMed:'#2A6090',
+  white:'#FFFFFF', grisBg:'#F5F6F8', grisBrd:'#D0D4DC',
+  black:'#1A1A2E', rojoTxt:'#7B3030'
 };
 
 // ── LAYOUT ───────────────────────────────────────────────────────────────────
@@ -416,7 +420,10 @@ function parseNotas(text){
     const u=line.toUpperCase();
     if(u.startsWith('DEPARTAMENTO')||u.startsWith('MANTENIMIENTO')||u.startsWith('MUNICIPIO'))
       zonas.push(line);
-    else notas.push(line.replace(/^[•\-\*]\s*/,''));
+    else {
+      const hasBullet=/^[•\-\*]\s*/.test(line);
+      notas.push({text:line.replace(/^[•\-\*]\s*/,''),bullet:hasBullet});
+    }
   });
   return {notas,zonas};
 }
@@ -508,7 +515,9 @@ function renderCanvas(dias){
       // notas
       mctx.font='12px Arial';
       for(const n of (dia._notas||[])){
-        const ls=wrapText(mctx,'• '+n, CW-PAD*2-8);
+        const _t=typeof n==='object'?n.text:n;
+        const _p=(typeof n==='object'?n.bullet:true)?'• ':'';
+        const ls=wrapText(mctx,_p+_t,CW-PAD*2-8);
         y += ls.length*13 + 2;
       }
       for(const z of (dia._zonas||[])){
@@ -556,8 +565,11 @@ function renderCanvas(dias){
 
     for(const sec of dia.secciones){
       const cols    = getColHeaders(sec);
-      const isLinea = sec.tipo.includes('LÍNEA')||sec.tipo.includes('LINEA');
-      const secClr  = isLinea ? CLR.azul : CLR.rojo;
+      const isLinea  = sec.tipo.includes('LÍNEA')||sec.tipo.includes('LINEA');
+      const isUnidad = sec.tipo.includes('UNIDAD');
+      const isPrueba = sec.tipo.includes('PRUEBA');
+      const secClr   = isLinea?CLR.linea:isUnidad?CLR.verde:isPrueba?CLR.indigo:CLR.rojo;
+      const hdrClr   = isLinea?CLR.lineaMed:isUnidad?CLR.verdeMed:isPrueba?CLR.indigoMed:CLR.rojoMed;
 
       // ── Section header ──
       fillRect(ctx, PAD, y, totalColW, 20, secClr);
@@ -572,8 +584,8 @@ function renderCanvas(dias){
       for(let i=0;i<4;i++) rh=Math.max(rh, cellH(ctx, cols[i]||'', COLS[i], 10, true, 3));
       let x=PAD;
       for(let i=0;i<4;i++){
-        fillRect(ctx,  x, y, COLS[i], rh, CLR.azulMed);
-        strokeRect(ctx, x, y, COLS[i], rh, CLR.azulMed);
+        fillRect(ctx,  x, y, COLS[i], rh, hdrClr);
+        strokeRect(ctx, x, y, COLS[i], rh, hdrClr);
         drawCell(ctx, cols[i]||'', x, y, COLS[i], rh, 10, true, CLR.white, 3);
         x += COLS[i];
       }
@@ -600,7 +612,9 @@ function renderCanvas(dias){
     const _n=dia._notas||[], _z=dia._zonas||[];
     ctx.font='12px Arial';
     for(const n of _n){
-      const ls=wrapText(ctx,'• '+n,CW-PAD*2-8);
+      const _t=typeof n==='object'?n.text:n;
+      const _p=(typeof n==='object'?n.bullet:true)?'• ':'';
+      const ls=wrapText(ctx,_p+_t,CW-PAD*2-8);
       for(const l of ls){ ctx.fillStyle=CLR.black; ctx.fillText(l,PAD,y+10); y+=15; }
       y+=2;
     }
