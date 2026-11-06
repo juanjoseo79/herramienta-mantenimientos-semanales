@@ -29,7 +29,7 @@ label.lbl{font-size:11px;font-weight:600;color:#444;display:block;margin-bottom:
 textarea{width:100%;height:80px;font-size:11px;border:1px solid #C8D3E0;border-radius:4px;padding:7px 10px;resize:vertical;font-family:monospace;color:#222;background:#FAFBFD}
 textarea:focus{outline:none;border-color:#1F3864}
 #zonas-textarea{height:140px}
-.btns{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+.md-toolbar{display:flex;gap:4px;margin-bottom:3px}.md-toolbar button{background:#EEF3FA;color:#1F3864;border:1px solid #C8D3E0;border-radius:4px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;transition:background .12s}.md-toolbar button:hover{background:#D4E0F5}.md-preview{display:none;margin-top:6px;padding:7px 10px;border:1px solid #C8D3E0;border-radius:4px;background:#fff;font-size:11px;line-height:1.6;min-height:40px;color:#222;white-space:pre-wrap}.md-preview.visible{display:block}.md-preview strong{font-weight:700}.md-preview li{margin-left:12px;list-style:disc}.btns{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
 button{border:none;cursor:pointer;font-weight:700;font-size:12px;padding:8px 18px;border-radius:5px;transition:background .15s}
 .btn-p{background:#1F3864;color:#fff}.btn-p:hover{background:#163060}.btn-p:disabled{background:#A0ABBE;cursor:not-allowed}
 .btn-e{background:#C0392B;color:#fff}.btn-e:hover{background:#A93226}.btn-e:disabled{background:#C7A09A;cursor:not-allowed}
@@ -64,7 +64,13 @@ canvas{display:block;border:1px solid #ddd}
     </div>
     <input type="file" id="file-input" accept=".xlsx,.xls"/>
     <label class="lbl">Notas y zonas afectadas (pega el texto del correo):</label>
-    <textarea id="notas-input" placeholder="• Unidades que continúan indisponibles...&#10;MANTENIMIENTO SANA ANA:&#10;DEPARTAMENTO: SANTA ANA..."></textarea>
+    <div class="md-toolbar">
+      <button onclick="mdWrap('**')" title="Negrita">B</button>
+      <button onclick="mdBullet()" title="Bullet">• Lista</button>
+      <button onclick="document.getElementById('md-prev').classList.toggle('visible');this.textContent=this.textContent.trim()==='👁 Vista previa'?'✕ Cerrar':'👁 Vista previa'" style="font-weight:normal">👁 Vista previa</button>
+    </div>
+    <textarea id="notas-input" oninput="renderMdPrev()" placeholder="• Unidades que continúan indisponibles...&#10;MANTENIMIENTO SANA ANA:&#10;DEPARTAMENTO: SANTA ANA..."></textarea>
+    <div id="md-prev" class="md-preview"></div>
     <div class="btns">
       <button class="btn-p" id="btn-gen" onclick="generarManttos()" disabled>🔄 Generar</button>
       <button class="btn-e" id="btn-exp-m" onclick="exportarManttos()" disabled>📸 Exportar PNG</button>
@@ -132,6 +138,43 @@ canvas{display:block;border:1px solid #ddd}
 </div>
 
 <script>
+// ── MARKDOWN TOOLBAR ─────────────────────────────────────────────────────────
+function mdWrap(marker){
+  const ta=document.getElementById('notas-input');
+  const s=ta.selectionStart, e=ta.selectionEnd;
+  const sel=ta.value.slice(s,e)||'texto';
+  const ins=marker+sel+marker;
+  ta.setRangeText(ins,s,e,'end');
+  renderMdPrev(); ta.focus();
+}
+function mdBullet(){
+  const ta=document.getElementById('notas-input');
+  const s=ta.selectionStart;
+  const lineStart=ta.value.lastIndexOf('\n',s-1)+1;
+  const before=ta.value.slice(0,lineStart);
+  const after=ta.value.slice(lineStart);
+  if(/^[•\-\*]\s*/.test(after)){
+    ta.value=before+after.replace(/^[•\-\*]\s*/,'');
+  } else {
+    ta.value=before+'• '+after;
+    ta.selectionStart=ta.selectionEnd=lineStart+2+Math.max(0,s-lineStart);
+  }
+  renderMdPrev(); ta.focus();
+}
+function renderMdPrev(){
+  const ta=document.getElementById('notas-input');
+  const prev=document.getElementById('md-prev');
+  if(!prev.classList.contains('visible')) return;
+  const html=ta.value.split('\n').map(line=>{
+    const trim=line.trim();
+    if(!trim) return '';
+    const hasBullet=/^[•\-\*]\s*/.test(trim);
+    const clean=trim.replace(/^[•\-\*]\s*/,'');
+    const rich=clean.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+    return hasBullet?`<li>${rich}</li>`:`<p style="margin:0">${rich}</p>`;
+  }).filter(Boolean).join('');
+  prev.innerHTML=html?`<ul style="padding-left:14px;margin:0">${html.includes('<li')?html:'</ul><p>'+html+'<p><ul>'}`.replace(/<\/ul><p>/,'<p>').replace(/<p><ul>/,'<ul>'):'<span style="color:#999">Vista previa aquí...</span>';
+}
 // ── TABS ─────────────────────────────────────────────────────────────────────
 function setTab(name, btn){
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
@@ -422,7 +465,10 @@ function parseNotas(text){
       zonas.push(line);
     else {
       const hasBullet=/^[•\-\*]\s*/.test(line);
-      notas.push({text:line.replace(/^[•\-\*]\s*/,''),bullet:hasBullet});
+      const cleanLine=line.replace(/^[•\-\*]\s*/,'');
+      const hasBold=/\*\*/.test(cleanLine);
+      const plainText=cleanLine.replace(/\*\*([^*]+)\*\*/g,'$1');
+      notas.push({text:plainText,bullet:hasBullet,bold:hasBold});
     }
   });
   return {notas,zonas};
@@ -513,10 +559,11 @@ function renderCanvas(dias){
       }
 
       // notas
-      mctx.font='12px Arial';
       for(const n of (dia._notas||[])){
         const _t=typeof n==='object'?n.text:n;
+        const _b=typeof n==='object'&&n.bold;
         const _p=(typeof n==='object'?n.bullet:true)?'• ':'';
+        mctx.font=(_b?'bold ':'')+'12px Arial';
         const ls=wrapText(mctx,_p+_t,CW-PAD*2-8);
         y += ls.length*13 + 2;
       }
@@ -610,10 +657,11 @@ function renderCanvas(dias){
 
     // ── Notas ──
     const _n=dia._notas||[], _z=dia._zonas||[];
-    ctx.font='12px Arial';
     for(const n of _n){
       const _t=typeof n==='object'?n.text:n;
+      const _b=typeof n==='object'&&n.bold;
       const _p=(typeof n==='object'?n.bullet:true)?'• ':'';
+      ctx.font=(_b?'bold ':'')+'12px Arial';
       const ls=wrapText(ctx,_p+_t,CW-PAD*2-8);
       for(const l of ls){ ctx.fillStyle=CLR.black; ctx.fillText(l,PAD,y+10); y+=15; }
       y+=2;
