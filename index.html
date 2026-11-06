@@ -29,7 +29,7 @@ label.lbl{font-size:11px;font-weight:600;color:#444;display:block;margin-bottom:
 textarea{width:100%;height:80px;font-size:11px;border:1px solid #C8D3E0;border-radius:4px;padding:7px 10px;resize:vertical;font-family:monospace;color:#222;background:#FAFBFD}
 textarea:focus{outline:none;border-color:#1F3864}
 #zonas-textarea{height:140px}
-.md-toolbar{display:flex;gap:4px;margin-bottom:3px}.md-toolbar button{background:#EEF3FA;color:#1F3864;border:1px solid #C8D3E0;border-radius:4px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;transition:background .12s}.md-toolbar button:hover{background:#D4E0F5}.md-preview{display:none;margin-top:6px;padding:7px 10px;border:1px solid #C8D3E0;border-radius:4px;background:#fff;font-size:11px;line-height:1.6;min-height:40px;color:#222;white-space:pre-wrap}.md-preview.visible{display:block}.md-preview strong{font-weight:700}.md-preview li{margin-left:12px;list-style:disc}.btns{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+.md-toolbar{display:flex;gap:4px;margin-bottom:3px}.md-toolbar button{background:#EEF3FA;color:#1F3864;border:1px solid #C8D3E0;border-radius:4px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;transition:background .12s}.md-toolbar button:hover{background:#D4E0F5}.md-preview{display:none;margin-top:6px;padding:7px 10px;border:1px solid #C8D3E0;border-radius:4px;background:#fff;font-size:12px;font-family:Arial,sans-serif;line-height:1.45;min-height:40px;color:#222}.md-preview.visible{display:block}.md-preview strong{font-weight:700}.md-preview li{margin-left:12px;list-style:disc}.btns{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
 button{border:none;cursor:pointer;font-weight:700;font-size:12px;padding:8px 18px;border-radius:5px;transition:background .15s}
 .btn-p{background:#1F3864;color:#fff}.btn-p:hover{background:#163060}.btn-p:disabled{background:#A0ABBE;cursor:not-allowed}
 .btn-e{background:#C0392B;color:#fff}.btn-e:hover{background:#A93226}.btn-e:disabled{background:#C7A09A;cursor:not-allowed}
@@ -139,6 +139,44 @@ canvas{display:block;border:1px solid #ddd}
 
 <script>
 // ── MARKDOWN TOOLBAR ─────────────────────────────────────────────────────────
+const MD_BUL=/^(?:[•\-]|\*(?!\*))\s*/;
+function mdRuns(s){
+  return s.split(/(\*\*[^*]+?\*\*)/).filter(x=>x!=='').map(x=>{
+    const m=x.match(/^\*\*([^*]+?)\*\*$/);
+    return m?{t:m[1],b:true}:{t:x,b:false};
+  });
+}
+function mdEsc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+// Envuelve texto con tramos en negrita; devuelve líneas = [palabras], palabra = [{t,b}]
+function wrapRich(ctx,runs,maxW,size){
+  const F=b=>(b?'bold ':'')+size+'px Arial';
+  const words=[]; let cur=[];
+  for(const r of runs){
+    r.t.split(/(\s+)/).forEach(part=>{
+      if(part==='') return;
+      if(/^\s+$/.test(part)){ if(cur.length){words.push(cur);cur=[];} }
+      else cur.push({t:part,b:r.b});
+    });
+  }
+  if(cur.length) words.push(cur);
+  const wW=w=>w.reduce((a,p)=>{ctx.font=F(p.b);return a+ctx.measureText(p.t).width;},0);
+  ctx.font=F(false); const sp=ctx.measureText(' ').width;
+  const lines=[]; let line=[], lw=0;
+  for(const w of words){
+    const ww=wW(w);
+    if(line.length && lw+sp+ww>maxW){ lines.push(line); line=[w]; lw=ww; }
+    else { lw+= (line.length?sp:0)+ww; line.push(w); }
+  }
+  if(line.length) lines.push(line);
+  return lines.length?lines:[[]];
+}
+function drawRichLine(ctx,line,x,y,size){
+  ctx.font=size+'px Arial'; const sp=ctx.measureText(' ').width;
+  line.forEach((w,i)=>{
+    if(i) x+=sp;
+    w.forEach(p=>{ ctx.font=(p.b?'bold ':'')+size+'px Arial'; ctx.fillText(p.t,x,y); x+=ctx.measureText(p.t).width; });
+  });
+}
 function mdWrap(marker){
   const ta=document.getElementById('notas-input');
   const s=ta.selectionStart, e=ta.selectionEnd;
@@ -153,8 +191,8 @@ function mdBullet(){
   const lineStart=ta.value.lastIndexOf('\n',s-1)+1;
   const before=ta.value.slice(0,lineStart);
   const after=ta.value.slice(lineStart);
-  if(/^[•\-\*]\s*/.test(after)){
-    ta.value=before+after.replace(/^[•\-\*]\s*/,'');
+  if(MD_BUL.test(after)){
+    ta.value=before+after.replace(MD_BUL,'');
   } else {
     ta.value=before+'• '+after;
     ta.selectionStart=ta.selectionEnd=lineStart+2+Math.max(0,s-lineStart);
@@ -165,15 +203,13 @@ function renderMdPrev(){
   const ta=document.getElementById('notas-input');
   const prev=document.getElementById('md-prev');
   if(!prev.classList.contains('visible')) return;
-  const html=ta.value.split('\n').map(line=>{
-    const trim=line.trim();
-    if(!trim) return '';
-    const hasBullet=/^[•\-\*]\s*/.test(trim);
-    const clean=trim.replace(/^[•\-\*]\s*/,'');
-    const rich=clean.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
-    return hasBullet?`<li>${rich}</li>`:`<p style="margin:0">${rich}</p>`;
-  }).filter(Boolean).join('');
-  prev.innerHTML=html?`<ul style="padding-left:14px;margin:0">${html.includes('<li')?html:'</ul><p>'+html+'<p><ul>'}`.replace(/<\/ul><p>/,'<p>').replace(/<p><ul>/,'<ul>'):'<span style="color:#999">Vista previa aquí...</span>';
+  const rows=ta.value.split('\n').map(l=>l.trim()).filter(Boolean).map(line=>{
+    const bul=MD_BUL.test(line);
+    const txt=bul?line.replace(MD_BUL,''):line;
+    const html=mdRuns(txt).map(r=>r.b?'<strong>'+mdEsc(r.t)+'</strong>':mdEsc(r.t)).join('');
+    return '<div style="margin:0 0 2px 0'+(bul?';padding-left:12px;text-indent:-12px':'')+'">'+(bul?'•&nbsp;&nbsp;':'')+html+'</div>';
+  });
+  prev.innerHTML=rows.length?rows.join(''):'<span style="color:#999">Vista previa aquí...</span>';
 }
 // ── TABS ─────────────────────────────────────────────────────────────────────
 function setTab(name, btn){
@@ -464,11 +500,10 @@ function parseNotas(text){
     if(u.startsWith('DEPARTAMENTO')||u.startsWith('MANTENIMIENTO')||u.startsWith('MUNICIPIO'))
       zonas.push(line);
     else {
-      const hasBullet=/^[•\-\*]\s*/.test(line);
-      const cleanLine=line.replace(/^[•\-\*]\s*/,'');
-      const hasBold=/\*\*/.test(cleanLine);
-      const plainText=cleanLine.replace(/\*\*([^*]+)\*\*/g,'$1');
-      notas.push({text:plainText,bullet:hasBullet,bold:hasBold});
+      const hasBullet=MD_BUL.test(line);
+      const cleanLine=line.replace(MD_BUL,'');
+      const runs=mdRuns(cleanLine);
+      notas.push({text:runs.map(r=>r.t).join(''),bullet:hasBullet,runs});
     }
   });
   return {notas,zonas};
@@ -560,12 +595,10 @@ function renderCanvas(dias){
 
       // notas
       for(const n of (dia._notas||[])){
-        const _t=typeof n==='object'?n.text:n;
-        const _b=typeof n==='object'&&n.bold;
-        const _p=(typeof n==='object'?n.bullet:true)?'• ':'';
-        mctx.font=(_b?'bold ':'')+'12px Arial';
-        const ls=wrapText(mctx,_p+_t,CW-PAD*2-8);
-        y += ls.length*13 + 2;
+        const _o=typeof n==='object'?n:{text:n,bullet:true};
+        const _runs=[{t:_o.bullet?'• ':'',b:false}].concat(_o.runs||[{t:_o.text,b:false}]);
+        const ls=wrapRich(mctx,_runs,CW-PAD*2-8,12);
+        y += ls.length*15 + 2;
       }
       for(const z of (dia._zonas||[])){
         const ls=wrapText(mctx, z, CW-PAD*2-8);
@@ -658,12 +691,10 @@ function renderCanvas(dias){
     // ── Notas ──
     const _n=dia._notas||[], _z=dia._zonas||[];
     for(const n of _n){
-      const _t=typeof n==='object'?n.text:n;
-      const _b=typeof n==='object'&&n.bold;
-      const _p=(typeof n==='object'?n.bullet:true)?'• ':'';
-      ctx.font=(_b?'bold ':'')+'12px Arial';
-      const ls=wrapText(ctx,_p+_t,CW-PAD*2-8);
-      for(const l of ls){ ctx.fillStyle=CLR.black; ctx.fillText(l,PAD,y+10); y+=15; }
+      const _o=typeof n==='object'?n:{text:n,bullet:true};
+      const _runs=[{t:_o.bullet?'• ':'',b:false}].concat(_o.runs||[{t:_o.text,b:false}]);
+      const ls=wrapRich(ctx,_runs,CW-PAD*2-8,12);
+      for(const l of ls){ ctx.fillStyle=CLR.black; drawRichLine(ctx,l,PAD,y+10,12); y+=15; }
       y+=2;
     }
     for(const z of _z){
